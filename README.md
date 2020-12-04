@@ -26,9 +26,7 @@ kubernetes 管理很多台實體電腦，每台實體電腦裡面有很多艘船
 ![](https://i.imgur.com/baKMiPR.png)
 
 ---
-```gherkin=
 
-```
 
 
 
@@ -525,3 +523,584 @@ $ sudo ctr container rm b1
 $ sudo ctr image remove docker.io/library/busybox:latest docker.io/library/busybox:latest
 ```
 
+
+### 探索 Docker
+```gherkin=
+開始安裝 Docker ， (如果已經裝過 runc , containerd , 就不會再安裝一次)
+$ sudo  apt  install  docker.io
+
+將 bigred 帳號加入 docker 群組後, 就不需使用 sudo 命令執行 docker
+$ sudo  usermod  -aG  docker bigred
+
+重新開機 (一定要執行)
+$ sudo  reboot
+
+再次登入 ddg52
+$ ssh 172.29.0.52
+bigred@172.29.0.52's password: bigred
+
+顯示 Docker 版本
+$ docker info
+ .....
+ Server Version: 19.03.8
+ Storage Driver: overlay2
+ ......
+ Docker Root Dir: /var/lib/docker
+ Debug Mode: false
+ ......
+```
+#### 檢視 Docker 運作資訊
+
+```gherkin=
+沒有任何 Container 執行時, 只有 dockerd 及 containerd 這二個 Daemon 在運作
+$ ps aux | grep -v grep | grep containerd
+root         604  0.3  1.1 969256 46788 ?        Ssl  14:48   0:06 /usr/bin/containerd
+root        1034  0.1  2.2 1008892 89944 ?       Ssl  14:52   0:03 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+```
+
+![](https://i.imgur.com/Z5oN1Z8.png)
+- my computer : ddg52
+- 儲存在 /var/lib/docker
+```gherkin=
+在 ddg52 終端機執行以下命令 
+$ docker search busybox
+NAME                            DESCRIPTION                   STARS     OFFICIAL  AUTOMATED
+busybox                        Busybox base image.        1912         [OK]       
+progrium/busybox                                                58            [OK]
+.............
+
+
+$ docker pull busybox
+Using default tag: latest
+latest: Pulling from library/busybox
+7520415ce762: Pull complete 
+Digest: sha256:32f093055929dbc23dec4d03e09dfe971f5973a9ca5cf059cbfb644c206aa83f
+Status: Downloaded newer image for busybox:latest
+
+$ docker images
+REPOSITORY   TAG        IMAGE ID      CREATED          SIZE
+busybox      latest     1c35c4412082  5 days ago       1.22MB
+```
+#### 建立與執行軟體貨櫃 (Container) 主機
+```gherkin=
+建立軟體貨櫃 (再次確認 Linux Namespace 啟動)
+$ docker run --name b1 -it busybox /bin/sh
+/ # uname -r
+5.4.0-33-generic
+
+/ # hostname
+54ab5a1a4690
+
+/ # ps aux
+PID   USER     TIME   COMMAND
+    1 root       0:00 /bin/sh
+   10 root       0:00 ps aux
+
+/ #  ifconfig eth0
+eth0      Link encap:Ethernet  HWaddr 02:42:AC:11:00:02  
+          inet addr:172.17.0.2  Bcast:0.0.0.0  Mask:255.255.0.0
+          inet6 addr: fe80::42:acff:fe11:2/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+         .........
+
+/ # exit
+```
+
+#### 管理軟體貨櫃 (Container) 主機
+```gherkin=
+$ docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS                     PORTS               NAMES
+54ab5a1a4690        busybox             "/bin/sh"           5 minutes ago       Exited (0) 9 seconds ago                       b1
+
+$ docker start b1
+
+$ docker exec -it b1 sh      (只能本機連接)
+/ # exit
+
+$ docker stop b1
+
+$ docker rm b1
+```
+
+
+### docker 使用 busybox 開網站練習
+
+
+```gherkin=
+#給 ddg52 開 80 port 連到 8888
+docker run --name b2 -it -p 80:8888 busybox /bin/sh
+
+mkdir -p www/cgi-bin
+
+echo '<h1>MyWeb : /x/x/x <h1>'   >  www/index.html
+
+vi  www/cgi-bin/kungfu
+
+chmod +x  www/cgi-bin/kungfu
+
+busybox httpd -p 8888 -h /www
+```
+
+> 之後用cvn71的firefox連到網路
+![](https://i.imgur.com/mHTAEKv.png)
+
+### 建立 Alpine 軟體貨櫃主機 並測試上傳到 docker hub
+```gherkin=
+$ docker run --name a1 -it alpine sh
+/ # busybox | grep httpd
+
+[重要] Docker Alpine Image 內建的 busybox 並沒提供 httpd 功能
+
+下載 Busybox 執行檔
+/ #  wget https://busybox.net/downloads/binaries/1.28.1-defconfig-multiarch/busybox-x86_64
+
+安裝 Busybox 執行檔
+/ #  chmod +x busybox-x86_64
+/ #  mv busybox-x86_64 bin/busybox
+
+執行 Busybox 命令
+/ # busybox | grep httpd
+	hexedit, hostid, hostname, httpd, hush, hwclock, i2cdetect, i2cdump, i2cget, i2cset, id, ifconfig,
+
+```
+#### 建立 Busybox Httpd 網站伺服器
+```gherkin=
+製作網站目錄及首頁
+/ # mkdir www
+/ # echo '<h1>Busybox HTTPd</h1>' > www/index.html
+
+啟動 Busybox Httpd 網站伺服器
+/ # busybox httpd -p 8888 -h www
+
+安裝網頁工具
+/ # apk update
+/ # apk add elinks curl
+
+取得網頁
+/ # curl http://localhost:8888
+<h1>Busybox HTTPd</h1>
+
+檢視網頁
+/ # elinks -dump 1 http://localhost:8888
+                                   Busybox HTTPd
+
+/ # exit
+```
+
+#### 製作 a1 image 並上載至 Docker HUB
+```gherkin=
+$ docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS                     PORTS               NAMES
+559336d9d286        alpine              "sh"                9 minutes ago       Exited (0) 2 minutes ago                       a1
+
+$ docker commit a1 <Login Name>/a1
+sha256:8684b18333c9b1bf1a87ff008819d554459d752739e4c312c515b5031285ef2a
+
+$ docker login 
+.........
+Username: <Login Name>
+Password: 
+Login Succeeded
+
+$ docker push <Login Name>/a1
+$ docker logout
+
+[重要] 關閉 Docker Host 之前, 記得執行 docker logout, 然後刪除 /home/bigred/.docker 目錄
+
+$ docker rm a1 
+```
+#### 使用自製 a1 image
+```gherkin=
+$ docker run --name testa1 -d <login name>/a1 httpd -p 8888 -h www 
+
+$ docker ps -a
+CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS                     PORTS               NAMES
+aa9b759e6f0e        dafu/busyweb        "httpd -p 8888 -h www"   6 seconds ago       Exited (0) 4 seconds ago                       testa1
+
+因 httpd 沒在前景啟動, 以致 testa1 貨櫃主機沒啟動
+$ docker rm testa1
+
+重新建立 testweb 貨櫃主機
+$ docker run --name testa1 -d <login name>/a1 httpd -f -p 8888 -h www
+
+$ docker exec testa1 hostname -i
+172.17.0.2
+
+$ curl http://172.17.0.2:8888
+<h1>Busybox HTTPd</h1>
+```
+
+
+
+
+
+
+
+
+### 建立 Nginx 網路
+```gherkin=
+# start=always 會下次開機自動重新啟動
+$ docker run -d -p 7777:80 --restart=always --name n1 nginx
+
+$ docker ps -a
+CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS                  NAMES
+5e45f40f48d1        nginx               "/docker-entrypoint.…"   5 seconds ago       Up 4 seconds        0.0.0.0:7777->80/tcp   n1
+
+
+$ curl -s http://localhost:7777 | head -n 10
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+    body {
+        width: 35em;
+        margin: 0 auto;
+        font-family: Tahoma, Verdana, Arial, sans-serif;
+    }
+
+$ exit
+
+```
+#### 重建 n1 image 並設定自動啟動
+
+```bash =
+在 CVN71 終端機執行以下命令 
+$ dkh stop ddg52
+
+$ dkh start ddg52
+
+[註] Docker Host 重啟內定不會自動啟動 Container, 除非指定 --restart=always 這參數, Container 一但設定自動重啟, 並不會重新建立一個新的 Container, 由以下 Container ID 可以得知
+
+在 ddg52 終端機執行以下命令 
+$ docker ps -a
+CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS                  NAMES
+5e45f40f48d1        nginx               "/docker-entrypoint.…"   2 minutes ago       Up About a minute   0.0.0.0:7777->80/tcp   n1
+
+$ docker rm -f n1
+```
+### 撰寫 Dockerfile
+
+```bash =
+
+在 ddg52 終端機執行以下命令 
+$ mkdir wulin; cd wulin
+
+$ wget https://julialang-s3.julialang.org/bin/linux/x64/1.4/julia-1.4.1-linux-x86_64.tar.gz
+
+[註] 下載時間大約 5 分鐘
+
+nano Dockerfile
+
+開始撰寫 Dockerfile 
+
+FROM ubuntu:18.04
+RUN apt-get update && apt-get install -y wget nano 
+COPY julia-1.4.1-linux-x86_64.tar.gz /tmp
+RUN tar xvfz /tmp/julia-1.4.1-linux-x86_64.tar.gz -C /opt
+RUN rm /tmp/julia-1.4.1-linux-x86_64.tar.gz
+
+#把 julia 執行命令，放入Path(usr/bin/ 一定    存在Path)
+RUN ln -s /opt/julia-1.4.1/bin/julia /usr/bin/julia' > Dockerfile
+
+
+# no cache 是不要把 ubuntu下載檔案存到快取(可以避免下次下載到快取檔案)
+
+$ docker build --no-cache -t julia  .
+```
+> 註:
+> 
+> dockerfile的命令都要大寫
+> 
+> 命令都不是在ddg52目錄下操作
+>
+> dockerfile 中 run 越少越少(產生的唯獨暫存目錄越少)
+> 
+> 如果有壓縮檔案的話要使用ADD(不要用copy)
+
+#### 檢視 julia image
+```bash =
+$ docker history julia
+IMAGE               CREATED             CREATED BY                                      SIZE                COMMENT
+dd67d5e9f03b        9 seconds ago       /bin/sh -c ln -s /opt/julia-1.1.0/bin/julia …   26B                 
+222ddc7d59f0        10 seconds ago      /bin/sh -c rm /tmp/julia-1.1.0-linux-x86_64.…   0B                  
+51e4e25d188f        12 seconds ago      /bin/sh -c tar xvfz /tmp/julia-1.1.0-linux-x…  328MB               
+1ed835d0130b        22 seconds ago      /bin/sh -c #(nop) COPY file:2c9e61d7a9dd148e…   98.9MB              
+c5f89f082101        24 seconds ago      /bin/sh -c apt-get update && apt-get install…   31.9MB              
+94e814e2efa8        12 days ago         /bin/sh -c #(nop)  CMD ["/bin/bash"]            0B                  
+<missing>           12 days ago         /bin/sh -c mkdir -p /run/systemd && echo 'do…   7B                  
+<missing>           12 days ago         /bin/sh -c rm -rf /var/lib/apt/lists/*          0B                  
+<missing>           12 days ago         /bin/sh -c set -xe   && echo '#!/bin/sh' > /…   745B                
+<missing>           12 days ago         /bin/sh -c #(nop) ADD file:1d7cb45c4e196a6a8…   88.9MB   
+            
+$ docker images julia
+REPOSITORY      TAG          IMAGE ID               CREATED             SIZE
+julia                   latest       23103df60837        8 minutes ago       566MB
+
+```
+
+#### 測試 julia image
+```bash =
+$ docker run --rm -it julia sh
+# julia	
+               _
+   _       _ _(_)_     |  Documentation: https://docs.julialang.org
+  (_)     | (_) (_)    |
+   _ _   _| |_  __ _   |  Type "?" for help, "]?" for Pkg help.
+  | | | | | | |/ _` |  |
+  | | |_| | | | (_| |  |  Version 1.4.1 (2018-08-08)
+ _/ |\__'_|_|_|\__'_|  |  Official https://julialang.org/ release
+|__/                   |
+
+julia> CTRL+D
+
+# exit
+```
+### julia image layer 最佳化 
+```bash =
+$ nano Dockerfile
+FROM ubuntu:18.04
+COPY julia-1.4.1-linux-x86_64.tar.gz /tmp
+RUN apt-get update && apt-get install -y wget nano && \ 
+    tar xvfz /tmp/julia-1.4.1-linux-x86_64.tar.gz -C /opt && \
+    rm /tmp/julia-1.4.1-linux-x86_64.tar.gz && \
+    ln -s /opt/julia-1.4.1/bin/julia /usr/bin/julia
+
+$ docker rmi julia 
+$ docker build --no-cache -t julia  .
+
+
+$ docker history julia
+IMAGE               CREATED              CREATED BY                                      SIZE                COMMENT
+0c422c42d2f7    About a minute ago   /bin/sh -c apt-get update && apt-get install…   357MB               
+c241d4f93a17    About a minute ago   /bin/sh -c #(nop) COPY file:9c0f24a51dc54d99…   98.9MB              
+...........
+```
+#### 再次重建 julia image
+```bash =
+$ echo 'FROM ubuntu:18.04
+ADD julia-1.4.1-linux-x86_64.tar.gz /opt
+RUN ln -s /opt/julia-1.4.1/bin/julia /usr/bin/julia' > Dockerfile
+
+[註] the best use for ADD is local tar file auto-extraction into the image
+
+$ docker rmi julia; docker build --no-cache -t julia  .
+
+$ docker images julia
+REPOSITORY  TAG                 IMAGE ID              CREATED              SIZE
+julia               latest              d4c87fb8bde0        9 seconds ago       430MB
+```
+
+
+
+### Golang Application Image
+#### 開發 Golang 網站
+```bash =
+cd ~/wulin; mkdir mygo; cd mygo
+
+$ echo 'package main
+import (
+	"fmt"
+	"log"
+	"net/http"
+)
+func handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, "Hello, 世界")
+}
+func main() {
+	http.HandleFunc("/", handler)
+	log.Fatal(http.ListenAndServe(":8888", nil))
+}' > main.go
+
+
+$ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o main
+```
+
+#### 自製原生 Docker Image
+
+```bash =
+$ dir
+總計 6.3M
+drwxr-xr-x 2 bigred bigred 4.0K  6月  8 19:38 .
+drwxr-xr-x 3 bigred bigred 4.0K  6月  8 19:36 ..
+-rwxr-xr-x 1 bigred bigred 6.3M  6月  8 19:38 main
+-rw-r--r-- 1 bigred bigred  236  6月  8 19:37 main.go
+
+$ echo 'FROM scratch
+ADD main /
+CMD ["/main"] ' > Dockerfile
+
+$ docker build -t goweb .
+
+$ docker images
+REPOSITORY    TAG         IMAGE ID            CREATED             SIZE
+goweb             latest       7f9652539fc0      14 minutes ago     7.39MB
+```
+#### 建立 g1 container
+```bash =
+$ docker run --rm --name g1 -d -p 88:8888 goweb
+
+$ curl http://localhost:8888
+Hello, 世界
+
+$ docker stop g1
+```
+### Docker Image 內定的執行命令
+```bash =
+$  docker run --rm -it alpine
+/ # ps
+PID   USER     TIME  COMMAND
+    1 root      0:00 /bin/sh
+    7 root      0:00 ps
+/ # exit
+
+$ docker run --rm -it busybox
+/ # exit
+
+問題 : 上述二個命令中, 不需指定執行命令, 一樣可以啟動貨櫃主機, 請問內定執行命令為何 ?
+
+使用 docker history 命令得知 Docker Image 內定執行命令
+$ docker history alpine
+IMAGE         CREATED       CREATED BY                           SIZE
+3fd9065eaf02  4 months ago  /bin/sh -c #(nop) CMD ["/bin/sh"]   0B                  
+<missing>     4 months ago  /bin/sh -c #(nop) ADD file:093f0…    4.15MB              
+
+$ docker history busybox
+IMAGE         CREATED        CREATED BY                                   SIZE  
+8ac48589692a  6 weeks ago    /bin/sh -c #(nop) CMD ["sh"]                   0B                  
+<missing>     6 weeks ago    /bin/sh -c #(nop) ADD file:c94ab8f8614 …   1.15MB 
+
+```
+```bash =
+$ cd ~/wulin; mkdir base
+
+$ echo 'FROM alpine:3.11.6
+RUN apk update && apk upgrade && apk add --no-cache nano sudo wget curl \
+    tree elinks bash shadow procps util-linux coreutils binutils findutils grep && \
+    wget https://busybox.net/downloads/binaries/1.28.1-defconfig-multiarch/busybox-x86_64 && \
+    chmod +x busybox-x86_64 && mv busybox-x86_64 bin/busybox1.28 && \
+    mkdir -p /opt/www && echo "let me go" > /opt/www/index.html
+
+CMD ["/bin/bash"] ' > base/Dockerfile
+
+```
+
+
+### 自製 Alpine OpenSSH Server 的 Docker Image
+
+
+```bash =
+cd ~/wulin; mkdir plus
+$ nano plus/Dockerfile 
+FROM alpine.base
+RUN apk update && \
+    apk add --no-cache openssh-server tzdata && \
+    # 設定時區
+    cp /usr/share/zoneinfo/Asia/Taipei /etc/localtime && \
+    ssh-keygen -t rsa -P "" -f /etc/ssh/ssh_host_rsa_key && \
+    echo -e 'Welcome to Alpine 3.11.6\n' > /etc/motd && \ 
+    # 建立管理者帳號 bigred   
+    adduser -s /bin/bash -h /home/bigred -G wheel -D bigred && echo '%wheel ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers && \
+    echo -e "bigred\nbigred\n" | passwd bigred &>/dev/null && [ "$?" == "0" ] && echo "bigred ok"
+ 
+EXPOSE 22
+ 
+ENTRYPOINT ["/usr/sbin/sshd"]
+CMD ["-D"]
+```
+```bash =
+$ docker build --no-cache  -t alpine.plus plus/
+$ docker run --rm --name s1 -d -h s1 alpine.plus sh
+Extra argument sh.
+[重要] 因使用 entrypoint 宣告內定命令, 便無法自行指定執行命令
+
+$ docker run --rm --name s1 -d -h s1 alpine.plus 
+$ ssh `docker exec s1 hostname -i`
+```
+
+
+### Docker Container 備份與還原
+```bash =
+$ docker run --name s2 -h s2 -d alpine.plus
+$ docker export s2 > dkssh.tar
+$ cat dkssh.tar | docker import - alpine.backup
+$ docker history alpine.backup
+
+上述做法會有問題
+
+$ docker run --name s2 -h s2 -d alpine.plus
+6e52bd5aee18c0aed8dbb17920037be0b9109158329b401c56b4f64417c2d784
+
+[重要] 使用上述命令建立 s2 Container, 這個 Container 有啟動 openssh server, 所以這個 Container 有 openssh 的執行狀態資訊檔, 這時使用 docker export 命令 
+匯出的 Tar 檔中就會有殘留 openssh 的執行暫存檔, 以至後續做出的 image 無法啟動 openssh server, 所以必須先關閉 s2 container, 才可備份此 container
+
+$ docker run --name s2 -h s2 -d alpine.plus
+$ docker stop s2             
+$ docker export s2 > s2.tar
+
+$ docker rm s2 && docker rmi alpine.plus
+$ cat s2.tar | docker import - alpine.plus &>/dev/null
+
+$ docker history alpine.plus
+```
+#### 使用重製 alpine.plus image
+```bash =
+$ docker run --name s2 -h s2 -d alpine.plus
+docker: Error response from daemon: No command specified.
+See 'docker run --help'.
+
+[重要] 重製後的 alpine.plus image 必須指定 執行命令
+
+$ docker run --name s2 -h s2 -d alpine.plus /usr/sbin/sshd -D
+
+$ docker ps -a
+CONTAINER ID        IMAGE               COMMAND               CREATED             STATUS              PORTS               NAMES
+d4f93f15556c        alpine.plus         "/usr/sbin/sshd -D"   5 seconds ago       Up 3 seconds                            s2
+
+$ docker rm -f s2
+```
+
+
+
+
+
+### student_server
+```bash =
+
+FROM ubuntu:20.04
+RUN \
+        sed -i 's/archive.ubuntu.com/free.nchc.org.tw/g' /etc/apt/sources.list && \
+        apt update && DEBIAN_FRONTEND=noninteractive \
+        apt install -y ssh nano wget curl sudo
+RUN for myarg in student teacher ; do \
+              useradd -m -s /bin/bash ${myarg} && \
+              usermod -a -G adm,sudo ${myarg} && \
+              echo "${myarg}:${myarg}" | chpasswd -m && \
+              echo '%sudo ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers ; done
+WORKDIR /home/student
+
+USER student
+RUN \
+  ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa && \
+  cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+
+WORKDIR /home/teacher
+USER teacher
+RUN \
+  ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa && \
+  cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+USER root
+RUN \
+  echo 'sudo service ssh start' >> /etc/bash.bashrc
+USER student
+
+WORKDIR /home/student
+CMD ["/bin/bash"]
+```
+
+
+### 網路
+```
+docker run --rm busybox cat /etc/resolv.conf
+```
+沒給dns的話 google 預設給 8.8.8.8
